@@ -182,50 +182,7 @@ def discover_structure(start_path: str = "") -> List[str]:
     return structure
 
 
-# ------------------------------------------------
-# RUN PYTHON FILE
-# ------------------------------------------------
-@mcp.tool()
-def run_python_file(file_path: str) -> str:
-    """
-    Run python file inside conda environment 'learning'.
-    Accepts relative or absolute path.
-    """
 
-    try:
-
-        path_obj = Path(file_path)
-
-        if not path_obj.is_absolute():
-            path_obj = resolve_safe_path(file_path)
-
-        command = [
-            "conda",
-            "run",
-            "-n",
-            CONDA_ENV,
-            "python",
-            str(path_obj)
-        ]
-
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True
-        )
-
-        return f"""
-Return Code: {process.returncode}
-
-STDOUT:
-{process.stdout}
-
-STDERR:
-{process.stderr}
-"""
-
-    except Exception as e:
-        return f"Execution error: {str(e)}"
 
 
 # ------------------------------------------------
