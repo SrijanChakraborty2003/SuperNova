@@ -189,4 +189,4 @@ def discover_structure(start_path: str = "") -> List[str]:
 # START MCP SERVER
 # ------------------------------------------------
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="stdio")
