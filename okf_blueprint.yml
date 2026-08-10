@@ -1,0 +1,105 @@
+# Open Knowledge Format (OKF) Blueprint for Code-GraphRAG System
+# Version: 1.0.0
+
+okf_version: "1.0.0"
+system_name: "Code-GraphRAG"
+description: "Standardized Open Knowledge Format schema translating codebases into AST-grounded Knowledge Graphs for LLM context."
+
+nodes:
+  Repository:
+    description: "The root Git repository being indexed."
+    properties:
+      name: { type: string, required: true }
+      repo_url: { type: string, required: false }
+      branch: { type: string, default: "main" }
+      indexed_at: { type: timestamp, required: true }
+
+  File:
+    description: "Source code file within the repository."
+    properties:
+      path: { type: string, required: true, primary_key: true }
+      relative_path: { type: string, required: true }
+      language: { type: string, required: true }
+      total_lines: { type: integer, required: true }
+
+  Class:
+    description: "Class, Struct, or Interface declaration."
+    properties:
+      id: { type: string, required: true, primary_key: true } # path:class_name
+      name: { type: string, required: true }
+      file_path: { type: string, required: true }
+      line_start: { type: integer, required: true }
+      line_end: { type: integer, required: true }
+      docstring: { type: string, required: false }
+
+  Function:
+    description: "Function, Method, or Routine definition."
+    properties:
+      id: { type: string, required: true, primary_key: true } # path:function_name:line_start
+      name: { type: string, required: true }
+      signature: { type: string, required: false }
+      file_path: { type: string, required: true }
+      line_start: { type: integer, required: true }
+      line_end: { type: integer, required: true }
+      docstring: { type: string, required: false }
+
+  Module:
+    description: "External or internal imported module or package."
+    properties:
+      name: { type: string, required: true, primary_key: true }
+      module_type: { type: string, enum: ["standard_library", "external_package", "internal_module"] }
+
+  Variable:
+    description: "Global, class-level, or key variable definitions."
+    properties:
+      id: { type: string, required: true, primary_key: true }
+      name: { type: string, required: true }
+      file_path: { type: string, required: true }
+      line_number: { type: integer, required: true }
+
+relationships:
+  CONTAINS:
+    description: "Parent element contains child code structure."
+    source_target_pairs:
+      - source: Repository
+        target: File
+      - source: File
+        target: Class
+      - source: File
+        target: Function
+
+  DEFINES:
+    description: "Class defines internal function/method."
+    source_target_pairs:
+      - source: Class
+        target: Function
+
+  CALLS:
+    description: "Function invokes another function or method."
+    properties:
+      line_number: { type: integer, required: false }
+    source_target_pairs:
+      - source: Function
+        target: Function
+
+  IMPORTS:
+    description: "File imports another module or file."
+    source_target_pairs:
+      - source: File
+        target: Module
+      - source: File
+        target: File
+
+  INHERITS_FROM:
+    description: "Class inherits from superclass."
+    source_target_pairs:
+      - source: Class
+        target: Class
+
+  DEPENDS_ON:
+    description: "File or function depends on another structural component."
+    source_target_pairs:
+      - source: File
+        target: File
+      - source: Function
+        target: Function

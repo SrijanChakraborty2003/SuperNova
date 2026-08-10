@@ -1,0 +1,22 @@
+# Code-GraphRAG System Dependencies
+
+# Core Orchestration & LLM Integration
+langchain>=0.3.0
+langchain-ollama>=0.2.0
+
+# Knowledge Graph & Vector Database Drivers
+neo4j>=5.0.0
+chromadb>=0.5.0
+
+# AST Code Parsing & Multi-language Support
+tree-sitter>=0.23.0
+tree-sitter-python>=0.23.0
+tree-sitter-javascript>=0.23.0
+
+# Git & Repository Utilities
+GitPython>=3.1.0
+PyYAML>=6.0
+
+# Git Webhook & Ingestion API Server
+fastapi>=0.110.0
+uvicorn>=0.28.0
