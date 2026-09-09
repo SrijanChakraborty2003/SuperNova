@@ -11,62 +11,79 @@ from graph_rag_pipeline import CodeGraphRAGPipeline
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Code-GraphRAG System CLI")
+    parser = argparse.ArgumentParser(description="SuperNova Code-RAG Web & CLI Server (Tree-Sitter + ChromaDB BGE + OKF + GPT-OSS 120B)")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Command 1: Sync Repository
-    sync_parser = subparsers.add_parser("sync", help="Synchronize a repository into Dual-Brain storage (Neo4j + ChromaDB)")
-    sync_parser.add_argument("--repo", type=str, default=".", help="Git repo URL or local repository path")
+    # Command 1: Sync Repository (Remote Git URL or Local Path)
+    sync_parser = subparsers.add_parser("sync", help="Synchronize a repository into ChromaDB (BGE-small-v1.5) and OKF Graph")
+    sync_parser.add_argument("--repo", type=str, default=".", help="Git repository URL or local repository path")
+    sync_parser.add_argument("--model", type=str, default="gemma4:31b-cloud", help="LLM model name")
 
-    # Command 2: Query Code-GraphRAG
-    query_parser = subparsers.add_parser("query", help="Query the Code-GraphRAG system for code rewrites & blast radius analysis")
+    # Command 2: Query Code-RAG
+    query_parser = subparsers.add_parser("query", help="Query Code-RAG for explanations, line numbers, and code rewrites")
     query_parser.add_argument("prompt", type=str, help="User prompt e.g. 'Update login function to use JWT'")
     query_parser.add_argument("--repo", type=str, default=".", help="Repository path to auto-sync if index is empty")
+    query_parser.add_argument("--model", type=str, default="gemma4:31b-cloud", help="LLM model name")
 
-    # Command 3: Launch Webhook Server
-    server_parser = subparsers.add_parser("server", help="Launch FastAPI dynamic ingestion webhook server")
-    server_parser.add_argument("--port", type=int, default=8080, help="Port to run Uvicorn server on")
+    # Command 3: Surgical Update File Re-indexing
+    update_parser = subparsers.add_parser("update", help="Surgically re-index a modified file in ChromaDB and OKF graph")
+    update_parser.add_argument("--file", type=str, required=True, help="Relative or full path of file modified")
+    update_parser.add_argument("--repo", type=str, default=".", help="Repository root path")
+
+    # Command 4: Webhook Server
+    webhook_parser = subparsers.add_parser("webhook", help="Launch FastAPI dynamic ingestion webhook server")
+    webhook_parser.add_argument("--port", type=int, default=8080, help="Port to run Uvicorn server on")
 
     args = parser.parse_args()
 
     if args.command == "sync":
-        print(f"=== Starting Dual-Brain Sync for target: {args.repo} ===")
-        sync = DualIndexSync()
+        print(f"=== Starting Repository Ingestion & Dual-Brain Sync for: {args.repo} ===")
+        sync = DualIndexSync(model_name=getattr(args, 'model', 'gpt-oss:120b'))
         res = sync.sync_repository(args.repo)
-        print("Sync Summary:", res)
+        print("\nSync Summary:", res)
         sync.close()
 
     elif args.command == "query":
-        # Check if vector index is populated, auto-sync if empty
-        pipeline = CodeGraphRAGPipeline()
+        pipeline = CodeGraphRAGPipeline(model_name=getattr(args, 'model', 'gpt-oss:120b'))
         if pipeline.collection.count() == 0:
-            print("[main] ChromaDB vector store is empty. Performing initial Dual-Brain Sync...")
-            sync = DualIndexSync()
+            print("[main] Vector database is empty. Triggering initial repository ingestion & indexing...")
+            sync = DualIndexSync(model_name=getattr(args, 'model', 'gpt-oss:120b'))
             sync.sync_repository(args.repo)
             sync.close()
-            # Refresh collection reference
-            pipeline = CodeGraphRAGPipeline()
+            pipeline = CodeGraphRAGPipeline(model_name=getattr(args, 'model', 'gpt-oss:120b'))
 
-        print(f"=== Executing Code-GraphRAG Pipeline ===")
+        print(f"=== Executing Code-RAG Pipeline (Query: '{args.prompt}') ===")
         res = pipeline.query_code_graph_rag(args.prompt)
         print("\n==========================================")
-        print("ANSWER & CODE REWRITE OUTPUT:")
+        print("CODE-RAG RESPONSE & REWRITE PROPOSAL:")
         print("==========================================")
         print(res["answer"])
         pipeline.close()
 
-    elif args.command == "server":
+    elif args.command == "update":
+        repo_root = os.path.abspath(args.repo)
+        full_file_path = os.path.abspath(args.file) if not os.path.isabs(args.file) else args.file
+        repo_name = os.path.basename(repo_root.rstrip("/\\"))
+
+        print(f"=== Surgically Re-indexing Modified File: {full_file_path} ===")
+        sync = DualIndexSync()
+        res = sync.sync_file(file_path=full_file_path, repo_root=repo_root, repo_name=repo_name)
+        print("Update Result:", res)
+        sync.close()
+
+    elif args.command == "webhook":
         import uvicorn
-        from webhook_server import app
+        from webhook_server import app as webhook_app
         print(f"=== Launching Webhook API Server on http://localhost:{args.port} ===")
-        uvicorn.run(app, host="0.0.0.0", port=args.port)
+        uvicorn.run(webhook_app, host="0.0.0.0", port=args.port)
 
     else:
-        # Default run if no subcommand specified
-        print("No command specified. Usage examples:")
-        print("  python main.py sync --repo .")
-        print("  python main.py query \"Update login function to use JWT\"")
-        print("  python main.py server")
+        # Default behavior: Launch Flask Web Dashboard on Port 5000
+        from app import app
+        print("\n" + "="*70)
+        print(" 🚀 Launching SuperNova Code-RAG Web Interface on http://localhost:5000")
+        print("="*70 + "\n")
+        app.run(host="0.0.0.0", port=5000, debug=False)
 
 
 if __name__ == "__main__":

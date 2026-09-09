@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperNova Code-RAG Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <!-- Top Navigation Header -->
+    <header class="navbar">
+        <div class="logo">
+            <i class="fa-solid fa-brain-circuit glow-icon"></i>
+            <span class="logo-text">SuperNova <span class="badge-tag">Code-RAG</span></span>
+        </div>
+        <div class="status-bar" id="statusBar">
+            <span class="status-indicator online"></span>
+            <span id="statusText">System Active</span>
+            <div class="stat-pill">
+                <i class="fa-solid fa-cubes"></i>
+                <span id="statVectorChunks">0</span> Chunks
+            </div>
+            <div class="stat-pill">
+                <i class="fa-solid fa-diagram-project"></i>
+                <span id="statTriples">0</span> OKF Triples
+            </div>
+        </div>
+    </header>
+
+    <main class="dashboard-container">
+
+        <!-- Section 1: Git Ingestion & Progress Bar -->
+        <section class="card ingestion-card">
+            <div class="card-header">
+                <h2><i class="fa-solid fa-git-alt icon-gradient"></i> Git Repository Ingestion</h2>
+                <p class="subtitle">Enter a Git clone URL or local directory to run Tree-Sitter AST chunking, BGE embeddings & OKF graph generation.</p>
+            </div>
+
+            <div class="ingestion-form">
+                <div class="input-group">
+                    <i class="fa-solid fa-link input-icon"></i>
+                    <input type="text" id="repoUrlInput" placeholder="https://github.com/username/repository.git or local path e.g. ." value=".">
+                    <button id="syncBtn" class="btn btn-primary">
+                        <i class="fa-solid fa-bolt"></i> Ingest & Index
+                    </button>
+                </div>
+            </div>
+
+            <!-- Animated Progress Bar -->
+            <div class="progress-wrapper" id="progressWrapper" style="display: none;">
+                <div class="progress-info">
+                    <span id="progressMessage" class="progress-message">Initializing Ingestion Pipeline...</span>
+                    <span id="progressPercent" class="progress-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div id="progressBarFill" class="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Ingestion Summary Pills -->
+            <div class="summary-pills" id="summaryPills" style="display: none;">
+                <div class="summary-pill">
+                    <i class="fa-solid fa-file-code"></i>
+                    <div>
+                        <div class="pill-number" id="sumFiles">0</div>
+                        <div class="pill-label">Source Files</div>
+                    </div>
+                </div>
+                <div class="summary-pill">
+                    <i class="fa-solid fa-vector-square"></i>
+                    <div>
+                        <div class="pill-number" id="sumChunks">0</div>
+                        <div class="pill-label">BGE Chunks</div>
+                    </div>
+                </div>
+                <div class="summary-pill">
+                    <i class="fa-solid fa-network-wired"></i>
+                    <div>
+                        <div class="pill-number" id="sumTriples">0</div>
+                        <div class="pill-label">OKF Triples</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Code-RAG Chat Interface -->
+        <section class="card chat-card">
+            <div class="card-header chat-header">
+                <div>
+                    <h2><i class="fa-solid fa-comments icon-gradient"></i> Code Assistant Chat</h2>
+                    <p class="subtitle">Powered by GPT-OSS 120B, BAAI/bge-small-en-v1.5 & Open Knowledge Format (OKF).</p>
+                </div>
+                <button id="clearChatBtn" class="btn btn-secondary btn-sm">
+                    <i class="fa-solid fa-trash-can"></i> Clear Chat
+                </button>
+            </div>
+
+            <!-- Chat History Area -->
+            <div class="chat-history" id="chatHistory">
+                <!-- Initial Welcome Message -->
+                <div class="message message-ai">
+                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                    <div class="message-content">
+                        <p>Welcome to <strong>SuperNova Code-RAG</strong>! 👋</p>
+                        <p>I can help you understand repository architecture, analyze blast radius impact, and generate code updates with exact line numbers.</p>
+                        <div class="quick-prompts">
+                            <button class="prompt-chip" onclick="useQuickPrompt('Explain how surgical re-indexing works in dual_index_sync.py')">💡 Explain surgical re-indexing</button>
+                            <button class="prompt-chip" onclick="useQuickPrompt('Update main.py to add a health check endpoint and return status')">⚡ Update main.py code</button>
+                            <button class="prompt-chip" onclick="useQuickPrompt('What functions are defined in okf_extractor.py?')">🔍 Query okf_extractor.py AST</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Input Bar -->
+            <div class="chat-input-area">
+                <textarea id="chatInput" placeholder="Ask a question or request a code update e.g. 'Update login function in main.py to handle JWT'..." rows="2"></textarea>
+                <button id="sendBtn" class="btn btn-accent">
+                    <i class="fa-solid fa-paper-plane"></i> Send
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

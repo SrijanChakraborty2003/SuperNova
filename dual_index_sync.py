@@ -78,14 +78,15 @@ class SemanticChunker:
 
 
 class DualIndexSync:
-    """Coordinates simultaneous graph (Neo4j) and vector (ChromaDB) indexing & purging."""
+    """Coordinates simultaneous graph (Neo4j / OKF) and vector (ChromaDB + BGE-small-v1.5) indexing & purging."""
 
     def __init__(self, 
                  neo4j_uri: str = "bolt://localhost:7687", 
                  neo4j_auth: tuple = ("neo4j", "test123456"),
                  chroma_host: str = "localhost", 
                  chroma_port: int = 8000,
-                 model_name: str = "gemma4:31b-cloud"):
+                 model_name: str = "gemma4:31b-cloud",
+                 ollama_url: str = "http://localhost:11434"):
         
         self.neo4j_mgr = Neo4jGraphManager(uri=neo4j_uri, auth=neo4j_auth)
         self.neo4j_mgr.setup_schema()
@@ -95,28 +96,32 @@ class DualIndexSync:
         
         self.ast_parser = ASTParser()
         self.chunker = SemanticChunker(self.ast_parser)
-        self.okf_extractor = OKFExtractor(model_name=model_name)
+        self.okf_extractor = OKFExtractor(model_name=model_name, ollama_url=ollama_url)
 
     def purge_file(self, rel_path: str):
         """Surgically purges stale graph nodes and vector embeddings for a modified file."""
         print(f"[DualIndexSync] Purging stale data for: {rel_path}")
         
-        # 1. Purge from Neo4j Graph DB
-        with self.neo4j_mgr.driver.session() as session:
-            session.run("""
-                MATCH (f:File {path: $path})
-                OPTIONAL MATCH (f)-[:DEFINES]->(child)
-                DETACH DELETE child, f
-            """, path=rel_path)
+        # 1. Purge from Neo4j Graph DB if connected
+        if self.neo4j_mgr.is_connected and self.neo4j_mgr.driver:
+            try:
+                with self.neo4j_mgr.driver.session() as session:
+                    session.run("""
+                        MATCH (f:File {path: $path})
+                        OPTIONAL MATCH (f)-[:DEFINES]->(child)
+                        DETACH DELETE child, f
+                    """, path=rel_path)
+            except Exception as e:
+                print(f"[DualIndexSync] Neo4j purge notice for {rel_path}: {e}")
 
         # 2. Purge from ChromaDB Vector DB
         try:
             self.collection.delete(where={"file_path": rel_path})
         except Exception as e:
-            print(f"[DualIndexSync] Chroma purge warning for {rel_path}: {e}")
+            print(f"[DualIndexSync] Chroma purge notice for {rel_path}: {e}")
 
     def sync_file(self, file_path: str, repo_root: str, repo_name: str) -> Dict[str, Any]:
-        """Surgically updates a single modified source file across Neo4j and ChromaDB."""
+        """Surgically updates a single modified source file across Neo4j/OKF and ChromaDB."""
         rel_path = os.path.relpath(file_path, repo_root).replace("\\", "/")
         
         # Step 1: Purge stale state
@@ -133,7 +138,7 @@ class DualIndexSync:
             metadatas = [c["metadata"] for c in chunks]
             self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
 
-        # Step 4: Extract OKF Triples & upsert into Neo4j
+        # Step 4: Extract OKF Triples & upsert into Graph
         triples = self.okf_extractor.extract_okf_triples(file_meta)
         self.neo4j_mgr.ingest_okf_graph(
             repo_name=repo_name,
@@ -141,7 +146,7 @@ class DualIndexSync:
             llm_triples=triples
         )
 
-        print(f"[DualIndexSync] Successfully synced {rel_path}: {len(chunks)} vector chunks, {len(triples)} OKF triples.")
+        print(f"[DualIndexSync] Successfully synced '{rel_path}': {len(chunks)} vector chunks, {len(triples)} OKF triples.")
         return {"file": rel_path, "chunks": len(chunks), "triples": len(triples)}
 
     def sync_repository(self, repo_target: str) -> Dict[str, Any]:

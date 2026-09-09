@@ -3,10 +3,12 @@
 # Core Orchestration & LLM Integration
 langchain>=0.3.0
 langchain-ollama>=0.2.0
+flask>=3.0.0
 
 # Knowledge Graph & Vector Database Drivers
 neo4j>=5.0.0
 chromadb>=0.5.0
+sentence-transformers>=2.2.0
 
 # AST Code Parsing & Multi-language Support
 tree-sitter>=0.23.0
