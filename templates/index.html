@@ -33,103 +33,170 @@
                 <span id="statTriples">0</span> OKF Triples
             </div>
         </div>
+        <div class="user-profile" id="userProfile" style="display: none;">
+            <i class="fa-solid fa-user-circle"></i>
+            <span id="userEmailSpan">user@gmail.com</span>
+            <button id="logoutBtn" class="btn btn-outline-danger btn-sm" title="Log out">
+                <i class="fa-solid fa-right-from-bracket"></i>
+            </button>
+        </div>
     </header>
 
-    <main class="dashboard-container">
+    <div class="app-layout">
 
-        <!-- Section 1: Git Ingestion & Progress Bar -->
-        <section class="card ingestion-card">
-            <div class="card-header">
-                <h2><i class="fa-solid fa-git-alt icon-gradient"></i> Git Repository Ingestion</h2>
-                <p class="subtitle">Enter a Git clone URL or local directory to run Tree-Sitter AST chunking, BGE embeddings & OKF graph generation.</p>
-            </div>
-
-            <div class="ingestion-form">
-                <div class="input-group">
-                    <i class="fa-solid fa-link input-icon"></i>
-                    <input type="text" id="repoUrlInput" placeholder="https://github.com/username/repository.git or local path e.g. ." value=".">
-                    <button id="syncBtn" class="btn btn-primary">
-                        <i class="fa-solid fa-bolt"></i> Ingest & Index
-                    </button>
-                </div>
-            </div>
-
-            <!-- Animated Progress Bar -->
-            <div class="progress-wrapper" id="progressWrapper" style="display: none;">
-                <div class="progress-info">
-                    <span id="progressMessage" class="progress-message">Initializing Ingestion Pipeline...</span>
-                    <span id="progressPercent" class="progress-percent">0%</span>
-                </div>
-                <div class="progress-track">
-                    <div id="progressBarFill" class="progress-bar-fill" style="width: 0%;"></div>
-                </div>
-            </div>
-
-            <!-- Ingestion Summary Pills -->
-            <div class="summary-pills" id="summaryPills" style="display: none;">
-                <div class="summary-pill">
-                    <i class="fa-solid fa-file-code"></i>
-                    <div>
-                        <div class="pill-number" id="sumFiles">0</div>
-                        <div class="pill-label">Source Files</div>
-                    </div>
-                </div>
-                <div class="summary-pill">
-                    <i class="fa-solid fa-vector-square"></i>
-                    <div>
-                        <div class="pill-number" id="sumChunks">0</div>
-                        <div class="pill-label">BGE Chunks</div>
-                    </div>
-                </div>
-                <div class="summary-pill">
-                    <i class="fa-solid fa-network-wired"></i>
-                    <div>
-                        <div class="pill-number" id="sumTriples">0</div>
-                        <div class="pill-label">OKF Triples</div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 2: Code-RAG Chat Interface -->
-        <section class="card chat-card">
-            <div class="card-header chat-header">
-                <div>
-                    <h2><i class="fa-solid fa-comments icon-gradient"></i> Code Assistant Chat</h2>
-                    <p class="subtitle">Powered by GPT-OSS 120B, BAAI/bge-small-en-v1.5 & Open Knowledge Format (OKF).</p>
-                </div>
-                <button id="clearChatBtn" class="btn btn-secondary btn-sm">
-                    <i class="fa-solid fa-trash-can"></i> Clear Chat
+        <!-- Left Sidebar: Multi-Chat Sessions -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button id="newChatBtn" class="btn btn-primary btn-block">
+                    <i class="fa-solid fa-plus"></i> New Chat Session
                 </button>
             </div>
+            <div class="chats-section-title">
+                <i class="fa-solid fa-clock-rotate-left"></i> Your Repository Chats
+            </div>
+            <div class="chat-sessions-list" id="chatsList">
+                <!-- Dynamic Chat Sessions populate here -->
+            </div>
+        </aside>
 
-            <!-- Chat History Area -->
-            <div class="chat-history" id="chatHistory">
-                <!-- Initial Welcome Message -->
-                <div class="message message-ai">
-                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
-                    <div class="message-content">
-                        <p>Welcome to <strong>SuperNova Code-RAG</strong>! 👋</p>
-                        <p>I can help you understand repository architecture, analyze blast radius impact, and generate code updates with exact line numbers.</p>
-                        <div class="quick-prompts">
-                            <button class="prompt-chip" onclick="useQuickPrompt('Explain how surgical re-indexing works in dual_index_sync.py')">💡 Explain surgical re-indexing</button>
-                            <button class="prompt-chip" onclick="useQuickPrompt('Update main.py to add a health check endpoint and return status')">⚡ Update main.py code</button>
-                            <button class="prompt-chip" onclick="useQuickPrompt('What functions are defined in okf_extractor.py?')">🔍 Query okf_extractor.py AST</button>
+        <!-- Right Main Dashboard -->
+        <main class="dashboard-container">
+
+            <!-- Section 1: Git Ingestion & Progress Bar -->
+            <section class="card ingestion-card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-git-alt icon-gradient"></i> Git Repository Ingestion</h2>
+                    <p class="subtitle">Enter a Git clone URL or local directory path to run Tree-Sitter AST chunking, BGE embeddings & OKF graph generation for this chat.</p>
+                </div>
+
+                <div class="ingestion-form">
+                    <div class="input-group">
+                        <i class="fa-solid fa-link input-icon"></i>
+                        <input type="text" id="repoUrlInput" placeholder="https://github.com/username/repository.git or local path e.g. /path/to/repo" value="">
+                        <button id="syncBtn" class="btn btn-primary">
+                            <i class="fa-solid fa-bolt"></i> Ingest & Index
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Animated Progress Bar -->
+                <div class="progress-wrapper" id="progressWrapper" style="display: none;">
+                    <div class="progress-info">
+                        <span id="progressMessage" class="progress-message">Initializing Ingestion Pipeline...</span>
+                        <span id="progressPercent" class="progress-percent">0%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div id="progressBarFill" class="progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- Ingestion Summary Pills -->
+                <div class="summary-pills" id="summaryPills" style="display: none;">
+                    <div class="summary-pill">
+                        <i class="fa-solid fa-file-code"></i>
+                        <div>
+                            <div class="pill-number" id="sumFiles">0</div>
+                            <div class="pill-label">Source Files</div>
+                        </div>
+                    </div>
+                    <div class="summary-pill">
+                        <i class="fa-solid fa-vector-square"></i>
+                        <div>
+                            <div class="pill-number" id="sumChunks">0</div>
+                            <div class="pill-label">BGE Chunks</div>
+                        </div>
+                    </div>
+                    <div class="summary-pill">
+                        <i class="fa-solid fa-network-wired"></i>
+                        <div>
+                            <div class="pill-number" id="sumTriples">0</div>
+                            <div class="pill-label">OKF Triples</div>
                         </div>
                     </div>
                 </div>
+            </section>
+
+            <!-- Section 2: Code-RAG Chat Interface -->
+            <section class="card chat-card">
+                <div class="card-header chat-header">
+                    <div>
+                        <h2 id="activeChatTitle"><i class="fa-solid fa-comments icon-gradient"></i> Code Assistant Chat</h2>
+                        <p class="subtitle" id="activeChatSubtitle">Powered by GPT-OSS 120B, BAAI/bge-small-en-v1.5 & Open Knowledge Format (OKF).</p>
+                    </div>
+                    <button id="clearChatBtn" class="btn btn-secondary btn-sm">
+                        <i class="fa-solid fa-trash-can"></i> Clear History
+                    </button>
+                </div>
+
+                <!-- Chat History Area -->
+                <div class="chat-history" id="chatHistory">
+                    <div class="message message-ai">
+                        <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                        <div class="message-content">
+                            <p>Welcome to <strong>SuperNova Code-RAG</strong>! 👋</p>
+                            <p>I can help you analyze codebase architecture, run graph blast-radius traversal, and execute code updates with exact line numbers.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input Bar -->
+                <div class="chat-input-area">
+                    <textarea id="chatInput" placeholder="Ask a question or request a code update for this project..." rows="2"></textarea>
+                    <button id="sendBtn" class="btn btn-accent">
+                        <i class="fa-solid fa-paper-plane"></i> Send
+                    </button>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Gmail 6-Digit OTP Login Overlay Modal -->
+    <div class="modal-backdrop" id="otpModal" style="display: flex;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-icon">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <h2>SuperNova Portal Access</h2>
+                <p>Sign in via 6-Digit Email OTP to access your project chat sessions.</p>
             </div>
 
-            <!-- Chat Input Bar -->
-            <div class="chat-input-area">
-                <textarea id="chatInput" placeholder="Ask a question or request a code update e.g. 'Update login function in main.py to handle JWT'..." rows="2"></textarea>
-                <button id="sendBtn" class="btn btn-accent">
-                    <i class="fa-solid fa-paper-plane"></i> Send
+            <!-- Step 1: Email Input -->
+            <div id="otpStep1" class="otp-step">
+                <div class="form-group">
+                    <label for="userEmailInput">Gmail / Email Address</label>
+                    <div class="input-with-icon">
+                        <i class="fa-solid fa-envelope"></i>
+                        <input type="email" id="userEmailInput" placeholder="name@example.com" value="srijan.chakraborty.office@gmail.com">
+                    </div>
+                </div>
+                <button id="sendOtpBtn" class="btn btn-primary btn-block btn-lg">
+                    <i class="fa-solid fa-paper-plane"></i> Send 6-Digit OTP Code
                 </button>
             </div>
-        </section>
 
-    </main>
+            <!-- Step 2: OTP Input -->
+            <div id="otpStep2" class="otp-step" style="display: none;">
+                <div class="form-group">
+                    <label for="otpCodeInput">Enter 6-Digit OTP Verification Code</label>
+                    <div class="input-with-icon">
+                        <i class="fa-solid fa-key"></i>
+                        <input type="text" id="otpCodeInput" placeholder="123456" maxlength="6" class="otp-code-input">
+                    </div>
+                    <small class="help-text">Check your inbox for the code sent from <code>srijan.chakraborty.office@gmail.com</code>.</small>
+                </div>
+                <button id="verifyOtpBtn" class="btn btn-accent btn-block btn-lg">
+                    <i class="fa-solid fa-check-double"></i> Verify & Enter Portal
+                </button>
+                <button id="backToEmailBtn" class="btn btn-link btn-block btn-sm">
+                    <i class="fa-solid fa-arrow-left"></i> Change Email
+                </button>
+            </div>
+
+            <div id="modalNotice" class="modal-notice" style="display: none;"></div>
+        </div>
+    </div>
 
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="toast-container"></div>

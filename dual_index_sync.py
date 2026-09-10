@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from typing import List, Dict, Any, Optional
 from okf_extractor import RepoManager, ASTParser, OKFExtractor, Neo4jGraphManager, ChromaManager
@@ -19,7 +20,6 @@ def create_sliding_window_chunks(
 
     title = video_metadata.get("title", "Untitled Video")
     video_url = video_metadata.get("url", "")
-    video_id = extract_video_id(video_url) or "video"
 
     step_seconds = chunk_seconds - overlap_seconds
     if step_seconds <= 0:
@@ -32,13 +32,113 @@ def create_sliding_window_chunks(
     win_start = 0.0
     while win_start < max_end_time:
         win_end = win_start + chunk_seconds
-
-        # Select cues overlapping with current window
         matching_cues = [
             cue for cue in cues
             if cue["end"] > win_start and cue["start"] < win_end
         ]
-        # ... (rest of the logic for building chunk_obj)
+        if matching_cues:
+            chunk_text = " ".join([c["text"] for c in matching_cues])
+            chunk_index += 1
+            chunks.append({
+                "id": f"{title}_chunk_{chunk_index}",
+                "text": chunk_text,
+                "metadata": {
+                    "title": title,
+                    "url": video_url,
+                    "start": win_start,
+                    "end": win_end
+                }
+            })
+        win_start += step_seconds
+
+    return chunks
+
+
+class SemanticChunker:
+    """Uses ASTParser metadata to chunk source files into semantic function/class/file blocks."""
+
+    def __init__(self, ast_parser: ASTParser):
+        self.ast_parser = ast_parser
+
+    def chunk_file(self, file_path: str, repo_root: str, repo_name: str = "", chat_id: str = "") -> List[Dict[str, Any]]:
+        rel_path = os.path.relpath(file_path, repo_root).replace("\\", "/")
+        file_meta = self.ast_parser.parse_file(file_path, repo_root)
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                code_lines = f.readlines()
+        except Exception:
+            return []
+
+        chunks = []
+
+        # 1. Function Chunks
+        for fn in file_meta.get("functions", []):
+            s_line = max(1, fn["line_start"])
+            e_line = min(len(code_lines), fn["line_end"])
+            snippet = "".join(code_lines[s_line - 1:e_line])
+            if snippet.strip():
+                chunk_id = f"{rel_path}:fn:{fn['name']}:{s_line}"
+                chunks.append({
+                    "id": chunk_id,
+                    "text": f"# Repository: {repo_name}\n# File: {rel_path} (Lines {s_line}-{e_line})\n# Function: {fn['name']}\n{snippet}",
+                    "metadata": {
+                        "file_path": rel_path,
+                        "repo_name": repo_name,
+                        "chat_id": chat_id,
+                        "type": "function",
+                        "name": fn["name"],
+                        "line_start": s_line,
+                        "line_end": e_line
+                    }
+                })
+
+        # 2. Class Chunks
+        for cls in file_meta.get("classes", []):
+            s_line = max(1, cls["line_start"])
+            e_line = min(len(code_lines), cls["line_end"])
+            snippet = "".join(code_lines[s_line - 1:e_line])
+            if snippet.strip():
+                chunk_id = f"{rel_path}:class:{cls['name']}:{s_line}"
+                chunks.append({
+                    "id": chunk_id,
+                    "text": f"# Repository: {repo_name}\n# File: {rel_path} (Lines {s_line}-{e_line})\n# Class: {cls['name']}\n{snippet}",
+                    "metadata": {
+                        "file_path": rel_path,
+                        "repo_name": repo_name,
+                        "chat_id": chat_id,
+                        "type": "class",
+                        "name": cls["name"],
+                        "line_start": s_line,
+                        "line_end": e_line
+                    }
+                })
+
+        # 3. Whole-file / Line Window Fallback Chunking (if file has no functions/classes)
+        if not chunks:
+            chunk_size = 60
+            for i in range(0, max(1, len(code_lines)), chunk_size):
+                sub_lines = code_lines[i:i + chunk_size]
+                snippet = "".join(sub_lines)
+                if snippet.strip():
+                    s_line = i + 1
+                    e_line = min(len(code_lines), i + chunk_size)
+                    chunk_id = f"{rel_path}:file_chunk:{s_line}"
+                    chunks.append({
+                        "id": chunk_id,
+                        "text": f"# Repository: {repo_name}\n# File: {rel_path} (Lines {s_line}-{e_line})\n{snippet}",
+                        "metadata": {
+                            "file_path": rel_path,
+                            "repo_name": repo_name,
+                            "chat_id": chat_id,
+                            "type": "file_chunk",
+                            "name": os.path.basename(rel_path),
+                            "line_start": s_line,
+                            "line_end": e_line
+                        }
+                    })
+
+        return chunks
 
 
 class DualIndexSync:
@@ -62,9 +162,16 @@ class DualIndexSync:
         self.chunker = SemanticChunker(self.ast_parser)
         self.okf_extractor = OKFExtractor(model_name=model_name, ollama_url=ollama_url)
 
-    def purge_file(self, rel_path: str):
+    def get_collection_for_chat(self, chat_id: Optional[str] = None):
+        """Returns isolated ChromaDB collection dedicated to a specific chat session ID."""
+        if chat_id:
+            safe_name = f"chat_{re.sub(r'[^a-zA-Z0-9_-]', '_', chat_id)}"
+            return self.chroma_mgr.get_or_create_collection(safe_name)
+        return self.collection
+
+    def purge_file(self, rel_path: str, chat_id: Optional[str] = None):
         """Surgically purges stale graph nodes and vector embeddings for a modified file."""
-        print(f"[DualIndexSync] Purging stale data for: {rel_path}")
+        print(f"[DualIndexSync] Purging stale data for: {rel_path} (chat_id: {chat_id})")
         
         # 1. Purge from Neo4j Graph DB if connected
         if self.neo4j_mgr.is_connected and self.neo4j_mgr.driver:
@@ -78,29 +185,31 @@ class DualIndexSync:
             except Exception as e:
                 print(f"[DualIndexSync] Neo4j purge notice for {rel_path}: {e}")
 
-        # 2. Purge from ChromaDB Vector DB
+        # 2. Purge from chat-scoped ChromaDB Vector DB
         try:
-            self.collection.delete(where={"file_path": rel_path})
+            target_collection = self.get_collection_for_chat(chat_id)
+            target_collection.delete(where={"file_path": rel_path})
         except Exception as e:
             print(f"[DualIndexSync] Chroma purge notice for {rel_path}: {e}")
 
-    def sync_file(self, file_path: str, repo_root: str, repo_name: str) -> Dict[str, Any]:
+    def sync_file(self, file_path: str, repo_root: str, repo_name: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
         """Surgically updates a single modified source file across Neo4j/OKF and ChromaDB."""
         rel_path = os.path.relpath(file_path, repo_root).replace("\\", "/")
-        
+        target_collection = self.get_collection_for_chat(chat_id)
+
         # Step 1: Purge stale state
-        self.purge_file(rel_path)
+        self.purge_file(rel_path, chat_id=chat_id)
 
         # Step 2: Parse AST & extract metadata
         file_meta = self.ast_parser.parse_file(file_path, repo_root)
 
-        # Step 3: Chunk & upsert into ChromaDB
-        chunks = self.chunker.chunk_file(file_path, repo_root)
+        # Step 3: Chunk & upsert into isolated ChromaDB collection for this chat session
+        chunks = self.chunker.chunk_file(file_path, repo_root, repo_name=repo_name, chat_id=chat_id or "")
         if chunks:
             ids = [c["id"] for c in chunks]
             documents = [c["text"] for c in chunks]
             metadatas = [c["metadata"] for c in chunks]
-            self.collection.add(ids=ids, documents=documents, metadatas=metadatas)
+            target_collection.add(ids=ids, documents=documents, metadatas=metadatas)
 
         # Step 4: Extract OKF Triples & upsert into Graph
         triples = self.okf_extractor.extract_okf_triples(file_meta)
@@ -113,19 +222,19 @@ class DualIndexSync:
         print(f"[DualIndexSync] Successfully synced '{rel_path}': {len(chunks)} vector chunks, {len(triples)} OKF triples.")
         return {"file": rel_path, "chunks": len(chunks), "triples": len(triples)}
 
-    def sync_repository(self, repo_target: str) -> Dict[str, Any]:
+    def sync_repository(self, repo_target: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
         """Performs initial or full dual-brain synchronization for an entire repository."""
         repo_mgr = RepoManager(repo_target=repo_target)
         repo_root = repo_mgr.prepare_repo()
         source_files = repo_mgr.get_source_files()
 
-        print(f"[DualIndexSync] Starting full sync for repository '{repo_mgr.repo_name}' ({len(source_files)} files)...")
+        print(f"[DualIndexSync] Starting full sync for repo '{repo_mgr.repo_name}' (chat_id: {chat_id}, {len(source_files)} files)...")
 
         total_chunks = 0
         total_triples = 0
 
         for sf in source_files:
-            res = self.sync_file(file_path=sf, repo_root=repo_root, repo_name=repo_mgr.repo_name)
+            res = self.sync_file(file_path=sf, repo_root=repo_root, repo_name=repo_mgr.repo_name, chat_id=chat_id)
             total_chunks += res["chunks"]
             total_triples += res["triples"]
 

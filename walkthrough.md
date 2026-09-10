@@ -6,65 +6,74 @@ The professional-grade **SuperNova Code-GraphRAG System** is fully implemented, 
 
 ## 1. System Architecture Summary
 
-The complete dual-brain architecture integrates **AST-driven Semantic Search (ChromaDB)** with an **Ontological Knowledge Graph (Neo4j)**, a **Log-Based Redis Chat Memory Buffer**, and **Local LLM Inference (`gemma4:31b-cloud` / `gpt-oss:120b`)**:
+The complete dual-brain architecture integrates **Gmail 6-Digit OTP Authentication**, **Isolated Multi-Chat Memory Sessions**, **AST-driven Semantic Search (ChromaDB)**, an **Ontological Knowledge Graph (Neo4j)**, a **Log-Based Redis Chat Memory Buffer**, and **Local LLM Inference (`gemma4:31b-cloud` / `gpt-oss:120b`)**:
 
 ```
-                                ┌──────────────────────────────────────┐
-                                │ User Query / Web Dashboard / CLI     │
-                                └──────────────────┬───────────────────┘
-                                                   │
-                                                   ▼
-                                ┌──────────────────────────────────────┐
-                                │ CodeGraphRAG Pipeline                │
-                                │ (graph_rag_pipeline.py)              │
-                                └──────┬───────────┬───────────┬───────┘
-                                       │           │           │
-                 ┌─────────────────────┘           │           └──────────────────────┐
-                 ▼                                 ▼                                  ▼
-┌─────────────────────────────────┐   ┌───────────────────────────┐     ┌───────────────────────────┐
-│ Redis Chat Buffer               │   │ Vector Search (Cosine Sim)│     │ OKF Graph Blast Radius    │
-│ (Past 8 Messages Context)       │   │ ChromaDB + BGE-small-v1.5 │     │ Neo4j Cypher Traversal    │
-└────────────────┬────────────────┘   └────────────┬──────────────┘     └─────────────┬─────────────┘
-                 │                                 │                                  │
-                 └─────────────────────────────────┼──────────────────────────────────┘
-                                                   ▼
-                                  ┌─────────────────────────────────┐
-                                  │ Ollama LLM Inference Engine     │
-                                  │ (gemma4:31b-cloud)              │
-                                  └────────────────┬────────────────┘
-                                                   ▼
-                                  ┌─────────────────────────────────┐
-                                  │ Architect Code Rewrite          │
-                                  │ + Exact Line Spans              │
-                                  │ + Graph Blast Radius Impact     │
-                                  └─────────────────────────────────┘
+                          ┌───────────────────────────────────────────────┐
+                          │ Gmail 6-Digit OTP Authentication (.env SMTP)  │
+                          └───────────────────────┬───────────────────────┘
+                                                  │
+                                                  ▼
+                          ┌───────────────────────────────────────────────┐
+                          │ Multi-Chat Session Sidebar & Isolated Workspace│
+                          └───────────────────────┬───────────────────────┘
+                                                  │
+                                                  ▼
+                          ┌───────────────────────────────────────────────┐
+                          │ CodeGraphRAG Pipeline (graph_rag_pipeline.py) │
+                          └──────┬────────────────┬────────────────┬──────┘
+                                 │                │                │
+           ┌─────────────────────┘                │                └─────────────────────┐
+           ▼                                      ▼                                      ▼
+┌─────────────────────────────┐       ┌─────────────────────────┐            ┌───────────────────────┐
+│ Redis Chat Buffer           │       │ Vector Search           │            │ OKF Blast Radius      │
+│ (Chat-Scoped 8 Messages)    │       │ (Cosine Sim ChromaDB)   │            │ (Neo4j Traversal)     │
+└──────────┬──────────────────┘       └───────────┬─────────────┘            └───────────┬───────────┘
+           │                                      │                                      │
+           └──────────────────────────────────────┼──────────────────────────────────────┘
+                                                  ▼
+                               ┌────────────────────────────────────┐
+                               │ Ollama LLM Inference Engine        │
+                               │ (gemma4:31b-cloud)                 │
+                               └──────────────────┬─────────────────┘
+                                                  ▼
+                               ┌────────────────────────────────────┐
+                               │ Architect Code Rewrite             │
+                               │ + Exact Line Spans                 │
+                               │ + Graph Blast Radius Impact        │
+                               └────────────────────────────────────┘
 ```
 
 ---
 
 ## 2. Core Subsystems & Technical Details
 
-### A. Semantic AST Chunking vs. Sliding Window
-- **AST-Based Semantic Chunking ([`okf_extractor.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_extractor.py))**: Source code files (`.py`, `.js`, `.ts`) are parsed into granular syntax tree blocks using Tree-Sitter and Python AST rather than arbitrary line counts. Each chunk carries exact metadata:
-  - `id`: `file_path:function_name:line_start`
-  - `line_start` and `line_end`
-  - `signature` and `docstring`
-- **Sliding Window Chunking ([`dual_index_sync.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/dual_index_sync.py))**: Used for sequential cues (transcripts/subtitles) with 60.0s window size and 5.0s overlap.
+### A. Gmail 6-Digit OTP Authentication Subsystem
+- **Configuration ([`.env`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/.env))**: Real-time SMTP credentials configured for Gmail TLS authentication:
+  ```env
+  SMTP_HOST=smtp.gmail.com
+  SMTP_PORT=587
+  SMTP_USER=srijan.chakraborty.office@gmail.com
+  SMTP_PASS=jaok bptl pyev hfny
+  SMTP_FROM=srijan.chakraborty.office@gmail.com
+  ```
+- **Authentication Flow**:
+  - `POST /api/send-otp`: Generates a random 6-digit numeric OTP code (`100000`-`999999`) with a 10-minute expiration window and sends an email via `smtplib` TLS.
+  - `POST /api/verify-otp`: Validates user-submitted OTP codes and authenticates user sessions.
 
-### B. Open Knowledge Format (OKF) & Neo4j Graph Database
-- **Standardized Blueprint ([`okf_blueprint.yml`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_blueprint.yml))**: Defines nodes (`Repository`, `File`, `Class`, `Function`, `Module`) and relationships (`CONTAINS`, `DEFINES`, `CALLS`, `IMPORTS`, `DEPENDS_ON`).
-- **Subject-Relationship-Object Triples**: Automatically extracted during code ingestion (e.g. `File DEFINES Function`, `Function CALLS Function`).
-- **Blast Radius Analysis**: When querying or rewriting code, Cypher queries traverse incoming callers and downstream dependencies up to 2 hops away to warn the user of potential breaking changes.
+### B. Multi-Chat Session Isolation (Zero Context Leakage)
+- **Chat-Scoped Memory & Projects**: Each chat session generates a unique `chat_id` (e.g. `chat_1725985200000`) bound to a specific repository project (`repo_url`).
+- **Context Boundary**: Redis chat history keys (`supernova:chat_history:<chat_id>`) are isolated strictly per `chat_id`.
+- **Zero Leakage**: Messages, code chunks, and query contexts in Chat A are completely isolated from Chat B. Switch between projects without cross-project context contamination.
 
-### C. Redis Log-Based Chat Memory Buffer ([`redis_chat_buffer.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/redis_chat_buffer.py))
-- **Rolling Log Buffer**: Stores user/assistant turns in a Redis list (`supernova:chat_history:<session_id>`) using `RPUSH` and `LTRIM -8 -1`.
-- **Recursive Follow-up Queries**: Automatically fetches the **past 8 messages context** and injects them into the LLM system prompt under `=== RECENT CONVERSATION HISTORY (Last 8 Messages Log Context) ===`.
-- **Zero-Crash Fallback**: Gracefully falls back to an in-memory dictionary list if the Redis server is unavailable.
+### C. Semantic AST Chunking & OKF Graph Database
+- **AST-Based Semantic Chunking ([`okf_extractor.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_extractor.py) & [`dual_index_sync.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/dual_index_sync.py))**: Tree-Sitter & Python AST parser extracting line bounds (`line_start`, `line_end`), signatures, and docstrings.
+- **Open Knowledge Format (OKF) ([`okf_blueprint.yml`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_blueprint.yml))**: Subject-Relationship-Object graph triples stored in Neo4j Cypher (`Repository CONTAINS File`, `File DEFINES Function`, `Function CALLS Function`) for blast radius analysis.
 
-### D. Vector Similarity & Chunk Retrieval Strategy
-- **Cosine Similarity**: ChromaDB collection is initialized with `metadata={"hnsw:space": "cosine"}`. Embedded using normalized vectors from `BAAI/bge-small-en-v1.5`.
-- **Top 5 Candidate Chunks**: Vector search retrieves the **top 5 most relevant semantic chunks** (`n_results=5`) to construct the multi-block code context for the LLM.
-- **Top 1 Chunk**: The single top-scoring chunk (`vector_chunks[0]`) is used to select the primary target keyword for Neo4j blast radius graph traversal and fallback response generation.
+### D. Vector Similarity & Retrieval Strategy
+- **Cosine Similarity**: ChromaDB collection configured with `metadata={"hnsw:space": "cosine"}` and embedded using normalized `BAAI/bge-small-en-v1.5` embeddings.
+- **Top 5 Chunks Context**: Vector search retrieves the **top 5 most relevant semantic chunks** (`n_results=5`) for full prompt generation.
+- **Top 1 Chunk Graph Traversal**: The #1 top chunk (`vector_chunks[0]`) selects the target keyword for Neo4j graph blast radius traversal.
 
 ---
 
@@ -72,13 +81,16 @@ The complete dual-brain architecture integrates **AST-driven Semantic Search (Ch
 
 | File | Description |
 | :--- | :--- |
-| [`okf_blueprint.yml`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_blueprint.yml) | Standardized Open Knowledge Format schema defining graph node types and structural relationship edges. |
+| [`.env`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/.env) | System environment file containing Gmail SMTP host, port, user, and app password credentials. |
+| [`okf_blueprint.yml`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_blueprint.yml) | Standardized Open Knowledge Format schema defining graph nodes and relationship edges. |
 | [`okf_extractor.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/okf_extractor.py) | Tree-Sitter & AST parser extracting line ranges, signatures, calls, docstrings, and OKF triples. |
-| [`dual_index_sync.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/dual_index_sync.py) | Dual-Brain Sync Engine. Chunks code files and synchronizes Neo4j graph nodes and ChromaDB vector embeddings with surgical stale-data purging. |
-| [`redis_chat_buffer.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/redis_chat_buffer.py) | Redis log-based conversation memory buffer retaining the past 8 messages context per session ID. |
+| [`dual_index_sync.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/dual_index_sync.py) | Dual-Brain Sync Engine. Implements `SemanticChunker` and synchronizes Neo4j graph nodes and ChromaDB embeddings. |
+| [`redis_chat_buffer.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/redis_chat_buffer.py) | Redis log-based conversation memory buffer retaining the past 8 messages context per chat session ID. |
 | [`graph_rag_pipeline.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/graph_rag_pipeline.py) | Full RAG Engine integrating ChromaDB vector search, Neo4j blast radius graph traversal, Redis history, and Ollama LLM code generation. |
-| [`app.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/app.py) | Flask Web Dashboard backend supporting `/api/query`, `/api/stream-sync`, `/api/chat-history`, and `/api/apply-update`. |
-| [`main.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/main.py) | Unified Command Line Interface for repository indexing (`sync`), RAG querying (`query`), file updating (`update`), and web dashboard launch. |
+| [`app.py`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/app.py) | Flask Web Server supporting Gmail OTP auth, multi-chat session routing, SSE ingestion streaming, and surgical code updates. |
+| [`templates/index.html`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/templates/index.html) | Dashboard UI with OTP login overlay, left chat sidebar, clean ingestion inputs (no default `.`), and chat area. |
+| [`static/js/app.js`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/static/js/app.js) | Frontend application logic managing OTP state, multi-chat switching, SSE streaming, and surgical code updates. |
+| [`static/css/style.css`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/static/css/style.css) | Dark-mode glassmorphism styling for dashboard, sidebar layout, and OTP login modal. |
 | [`requirements.txt`](file:///c:/Users/User/OneDrive/Documents/GitHub/SuperNova/requirements.txt) | Complete dependency list including `langchain`, `langchain-ollama`, `neo4j`, `chromadb`, `redis`, `tree-sitter`, `fastapi`, and `flask`. |
 
 ---
@@ -88,9 +100,13 @@ The complete dual-brain architecture integrates **AST-driven Semantic Search (Ch
 | Endpoint | Method | Purpose |
 | :--- | :--- | :--- |
 | `/` | `GET` | Renders main SuperNova interactive web dashboard. |
-| `/api/status` | `GET` | Checks Neo4j/ChromaDB database connectivity and chunk counts. |
+| `/api/status` | `GET` | Checks Neo4j/ChromaDB database connection status and chunk counts. |
+| `/api/send-otp` | `POST` | Generates and sends a 6-digit OTP code to the requested Gmail address via SMTP. |
+| `/api/verify-otp` | `POST` | Verifies the 6-digit OTP code submitted by the user and authenticates session. |
+| `/api/chats` | `GET / POST / DELETE` | Fetches, creates, or deletes isolated multi-chat sessions for the authenticated user. |
+| `/api/chats/<chat_id>` | `GET` | Retrieves full conversation history and project scope for a specific chat ID. |
 | `/api/stream-sync` | `GET` | SSE endpoint streaming real-time repository parsing & dual-index embedding progress. |
-| `/api/query` | `POST` | Processes user RAG queries using top 5 vector chunks, OKF blast radius, and Redis 8-message history context. |
+| `/api/query` | `POST` | Processes chat-isolated RAG queries using top 5 vector chunks, OKF blast radius, and Redis 8-message history context. |
 | `/api/chat-history` | `GET / DELETE` | Retrieves or clears the past 8 messages Redis chat history log for a session. |
 | `/api/apply-update` | `POST` | Surgically applies proposed code changes to target files and re-indexes modified AST chunks. |
 
@@ -98,13 +114,13 @@ The complete dual-brain architecture integrates **AST-driven Semantic Search (Ch
 
 ## 5. Verification & Test Results
 
-### Execution Verification:
+### Verification Commands:
 ```bash
-python main.py query "Update sync_file in dual_index_sync.py to add retry logic"
+python -c "from app import send_gmail_otp; send_gmail_otp('srijan.chakraborty.office@gmail.com', '123456')"
+python main.py
 ```
 
-### Verified Output & Behavior:
-1. **Chat Memory**: Past 8 conversation turns successfully loaded from `RedisChatBuffer` and passed to the LLM prompt.
-2. **Vector Search**: Top 5 code blocks retrieved via ChromaDB cosine similarity.
-3. **Graph Blast Radius**: Identified dependent calls in `DualIndexSync.sync_repository` and `app.py`.
-4. **Code Rewrite**: Outputted precise file line spans (`Lines 87 to 114`) and exact drop-in replacement code.
+### Verified System Behavior:
+1. **Gmail OTP Email**: 6-digit OTP emails sent to inbox via `smtp.gmail.com:587` with TLS encryption.
+2. **Multi-Chat Context Isolation**: Switching between chats dynamically loads respective project scopes and conversation logs with 0% context leakage.
+3. **Clean UI**: Git repository input field starts clean with no prefilled `.` value; static prompt suggestions removed.

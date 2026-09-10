@@ -57,10 +57,28 @@ class CodeGraphRAGPipeline:
             print(f"[CodeGraphRAGPipeline] Warning initializing ChatOllama: {e}")
             self.llm = None
 
-    def search_vector(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
-        """1. Vector Search: Finds semantic code blocks using BAAI/bge-small-en-v1.5 in ChromaDB."""
+    def get_collection_for_chat(self, session_id: Optional[str] = None):
+        """Returns isolated ChromaDB collection dedicated to a specific chat session ID."""
+        if session_id and session_id != "default_session":
+            safe_name = f"chat_{re.sub(r'[^a-zA-Z0-9_-]', '_', session_id)}"
+            return self.chroma_mgr.get_or_create_collection(safe_name)
+        return self.collection
+
+    def search_vector(self, query: str, n_results: int = 5, session_id: Optional[str] = None, repo_url: Optional[str] = None) -> List[Dict[str, Any]]:
+        """1. Vector Search: Finds semantic code blocks using BAAI/bge-small-en-v1.5 in isolated ChromaDB collection."""
         try:
-            res = self.collection.query(query_texts=[query], n_results=n_results)
+            target_collection = self.get_collection_for_chat(session_id)
+            if target_collection.count() == 0:
+                print(f"[CodeGraphRAGPipeline] Collection for chat '{session_id}' is empty (0 chunks). Returning 0 vector results.")
+                return []
+
+            kwargs = {"query_texts": [query], "n_results": n_results}
+            if repo_url:
+                repo_name = repo_url.rstrip("/\\").split("/")[-1].split("\\")[-1].replace(".git", "")
+                if repo_name and repo_name != ".":
+                    kwargs["where"] = {"repo_name": repo_name}
+
+            res = target_collection.query(**kwargs)
             chunks = []
             if res and res.get("documents"):
                 docs = res["documents"][0]
@@ -69,7 +87,7 @@ class CodeGraphRAGPipeline:
                     chunks.append({"code": d, "metadata": m})
             return chunks
         except Exception as e:
-            print(f"[CodeGraphRAGPipeline] Vector search warning: {e}")
+            print(f"[CodeGraphRAGPipeline] Vector search notice: {e}")
             return []
 
     def traverse_graph_blast_radius(self, function_or_file: str) -> Dict[str, Any]:
@@ -137,7 +155,7 @@ class CodeGraphRAGPipeline:
 
         return graph_info
 
-    def query_code_graph_rag(self, user_prompt: str, session_id: str = "default_session", max_history: int = 8) -> Dict[str, Any]:
+    def query_code_graph_rag(self, user_prompt: str, session_id: str = "default_session", repo_url: str = "", max_history: int = 8) -> Dict[str, Any]:
         """Full Code-GraphRAG Query Pipeline with Log-Based Redis Chat History Context (Past 8 Messages)."""
         print(f"\n[CodeGraphRAG] Processing query (session: '{session_id}'): '{user_prompt}'")
 
@@ -149,8 +167,8 @@ class CodeGraphRAGPipeline:
         else:
             formatted_history = "No prior conversation history for this session."
 
-        # Step 1: Semantic Vector Search via BAAI/bge-small-en-v1.5
-        vector_chunks = self.search_vector(user_prompt, n_results=5)
+        # Step 1: Semantic Vector Search via BAAI/bge-small-en-v1.5 (Scoped to session_id collection)
+        vector_chunks = self.search_vector(user_prompt, n_results=5, session_id=session_id, repo_url=repo_url)
         print(f"[CodeGraphRAG] Vector Search retrieved {len(vector_chunks)} candidate code blocks.")
 
         # Identify key target keyword for Graph Traversal
