@@ -386,6 +386,7 @@ function startRepoSync(repoUrl) {
             }
             fetchSystemStatus();
             fetchUserChats();
+            if (currentChatId) switchChat(currentChatId);
         } else if (data.status === "error") {
             eventSource.close();
             syncBtn.disabled = false;

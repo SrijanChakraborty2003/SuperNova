@@ -1,3 +1,4 @@
+import re
 import json
 import urllib.request
 from typing import List, Dict, Any, Optional
@@ -68,17 +69,12 @@ class CodeGraphRAGPipeline:
         """1. Vector Search: Finds semantic code blocks using BAAI/bge-small-en-v1.5 in isolated ChromaDB collection."""
         try:
             target_collection = self.get_collection_for_chat(session_id)
-            if target_collection.count() == 0:
+            doc_count = target_collection.count()
+            if doc_count == 0:
                 print(f"[CodeGraphRAGPipeline] Collection for chat '{session_id}' is empty (0 chunks). Returning 0 vector results.")
                 return []
 
-            kwargs = {"query_texts": [query], "n_results": n_results}
-            if repo_url:
-                repo_name = repo_url.rstrip("/\\").split("/")[-1].split("\\")[-1].replace(".git", "")
-                if repo_name and repo_name != ".":
-                    kwargs["where"] = {"repo_name": repo_name}
-
-            res = target_collection.query(**kwargs)
+            res = target_collection.query(query_texts=[query], n_results=min(n_results, doc_count))
             chunks = []
             if res and res.get("documents"):
                 docs = res["documents"][0]

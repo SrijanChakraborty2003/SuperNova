@@ -268,6 +268,15 @@ def stream_sync():
                 total_chunks += res.get("chunks", 0)
                 total_triples += res.get("triples", 0)
 
+            # Update chat session metadata in chats_store
+            if chat_id:
+                for email_key, user_chats in chats_store.items():
+                    for c in user_chats:
+                        if c["chat_id"] == chat_id:
+                            c["repo_url"] = repo_target
+                            c["title"] = f"Project: {repo_mgr.repo_name}"
+                            break
+
             stats = sync.neo4j_mgr.get_summary_stats()
             msg_text = f"Successfully ingested repository '{repo_mgr.repo_name}'!"
             yield f"data: {json.dumps({'status': 'complete', 'progress': 100, 'message': msg_text, 'summary': {'processed_files': total_files, 'total_vector_chunks': total_chunks, 'graph_stats': stats}})}\n\n"
