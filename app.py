@@ -97,9 +97,10 @@ def stream_sync():
 
 @app.route("/api/query", methods=["POST"])
 def query_rag():
-    """Handles Code-RAG chat queries and detects code update proposals."""
+    """Handles Code-RAG chat queries with Redis log-based context buffer."""
     data = request.get_json() or {}
     prompt = data.get("prompt", "").strip()
+    session_id = data.get("session_id", "default_session").strip()
     if not prompt:
         return jsonify({"error": "Prompt cannot be empty"}), 400
 
@@ -110,7 +111,7 @@ def query_rag():
             sync = get_sync_engine()
             sync.sync_repository(".")
 
-        res = pipeline.query_code_graph_rag(prompt)
+        res = pipeline.query_code_graph_rag(prompt, session_id=session_id, max_history=8)
         answer_text = res.get("answer", "")
 
         # Detect code update proposals in answer text
@@ -118,14 +119,32 @@ def query_rag():
 
         return jsonify({
             "user_prompt": prompt,
+            "session_id": session_id,
             "answer": answer_text,
             "vector_chunks": res.get("vector_chunks", []),
             "graph_context": res.get("graph_context", {}),
+            "chat_history": res.get("chat_history", []),
             "code_update_proposal": proposal
         })
 
     except Exception as e:
         return jsonify({"error": f"Failed to execute query: {str(e)}"}), 500
+
+
+@app.route("/api/chat-history", methods=["GET", "DELETE"])
+def handle_chat_history():
+    """Gets or clears recent Redis chat log history (past 8 messages context)."""
+    session_id = request.args.get("session_id", "default_session").strip()
+    try:
+        pipeline = get_pipeline_engine()
+        if request.method == "DELETE":
+            pipeline.chat_buffer.clear_history(session_id)
+            return jsonify({"status": "cleared", "session_id": session_id})
+        
+        history = pipeline.chat_buffer.get_history(session_id, max_messages=8)
+        return jsonify({"session_id": session_id, "chat_history": history})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/apply-update", methods=["POST"])

@@ -4,77 +4,41 @@ from typing import List, Dict, Any, Optional
 from okf_extractor import RepoManager, ASTParser, OKFExtractor, Neo4jGraphManager, ChromaManager
 
 
-class SemanticChunker:
-    """Chunks source code by AST logical blocks (functions, classes) with exact line number metadata."""
+def create_sliding_window_chunks(
+    cues: List[Dict[str, Any]],
+    video_metadata: Dict[str, Any],
+    chunk_seconds: float = 60.0,
+    overlap_seconds: float = 5.0
+) -> List[Dict[str, Any]]:
+    """
+    Groups SRT cues into sliding window chunks.
+    Default: chunk_seconds = 60.0, overlap_seconds = 5.0 (step_seconds = 55.0).
+    """
+    if not cues:
+        return []
 
-    def __init__(self, ast_parser: ASTParser):
-        self.parser = ast_parser
+    title = video_metadata.get("title", "Untitled Video")
+    video_url = video_metadata.get("url", "")
+    video_id = extract_video_id(video_url) or "video"
 
-    def chunk_file(self, file_path: str, repo_root: str) -> List[Dict[str, Any]]:
-        rel_path = os.path.relpath(file_path, repo_root).replace("\\", "/")
-        file_meta = self.parser.parse_file(file_path, repo_root)
+    step_seconds = chunk_seconds - overlap_seconds
+    if step_seconds <= 0:
+        raise ValueError("chunk_seconds must be greater than overlap_seconds")
 
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
+    max_end_time = max(cue["end"] for cue in cues)
+    chunks = []
+    chunk_index = 0
 
-        chunks = []
+    win_start = 0.0
+    while win_start < max_end_time:
+        win_end = win_start + chunk_seconds
 
-        # 1. Chunk Functions
-        for fn in file_meta["functions"]:
-            s_line = max(1, fn["line_start"])
-            e_line = min(len(lines), fn["line_end"])
-            chunk_code = "".join(lines[s_line - 1:e_line])
-            chunk_id = f"{rel_path}:func:{fn['name']}:{s_line}"
-
-            chunks.append({
-                "id": chunk_id,
-                "text": f"# File: {rel_path} (Lines {s_line}-{e_line})\n# Function: {fn['name']}\n{chunk_code}",
-                "metadata": {
-                    "file_path": rel_path,
-                    "chunk_type": "function",
-                    "name": fn["name"],
-                    "line_start": s_line,
-                    "line_end": e_line,
-                    "language": file_meta["language"]
-                }
-            })
-
-        # 2. Chunk Classes
-        for cls in file_meta["classes"]:
-            s_line = max(1, cls["line_start"])
-            e_line = min(len(lines), cls["line_end"])
-            chunk_code = "".join(lines[s_line - 1:e_line])
-            chunk_id = f"{rel_path}:class:{cls['name']}:{s_line}"
-
-            chunks.append({
-                "id": chunk_id,
-                "text": f"# File: {rel_path} (Lines {s_line}-{e_line})\n# Class: {cls['name']}\n{chunk_code}",
-                "metadata": {
-                    "file_path": rel_path,
-                    "chunk_type": "class",
-                    "name": cls["name"],
-                    "line_start": s_line,
-                    "line_end": e_line,
-                    "language": file_meta["language"]
-                }
-            })
-
-        # 3. Fallback Header Chunk if file has no functions/classes
-        if not chunks and lines:
-            chunks.append({
-                "id": f"{rel_path}:file_header:1",
-                "text": f"# File: {rel_path}\n" + "".join(lines[:50]),
-                "metadata": {
-                    "file_path": rel_path,
-                    "chunk_type": "file_header",
-                    "name": os.path.basename(rel_path),
-                    "line_start": 1,
-                    "line_end": min(50, len(lines)),
-                    "language": file_meta["language"]
-                }
-            })
-
-        return chunks
+        # Select cues overlapping with current window
+        matching_cues = [
+            cue for cue in cues
+            if cue["end"] > win_start and cue["start"] < win_end
+        ]
+        # ... (rest of the logic for building chunk_obj)
 
 
 class DualIndexSync:

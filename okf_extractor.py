@@ -489,7 +489,7 @@ class ChromaManager:
             return True
 
     def get_or_create_collection(self, collection_name: str = "code_semantic_chunks"):
-        kwargs = {"name": collection_name}
+        kwargs = {"name": collection_name, "metadata": {"hnsw:space": "cosine"}}
         if self.embedding_fn:
             kwargs["embedding_function"] = self.embedding_fn
         return self.client.get_or_create_collection(**kwargs)

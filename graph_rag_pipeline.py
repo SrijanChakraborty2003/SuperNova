@@ -3,6 +3,7 @@ import urllib.request
 from typing import List, Dict, Any, Optional
 from okf_extractor import Neo4jGraphManager, ChromaManager
 from langchain_ollama import ChatOllama
+from redis_chat_buffer import RedisChatBuffer
 
 
 def get_best_ollama_model(preferred: str = "gemma4:31b-cloud", base_url: str = "http://localhost:11434") -> str:
@@ -36,12 +37,15 @@ class CodeGraphRAGPipeline:
                  neo4j_auth: tuple = ("neo4j", "test123456"),
                  chroma_host: str = "localhost", 
                  chroma_port: int = 8000,
+                 redis_host: str = "localhost",
+                 redis_port: int = 6379,
                  model_name: str = "gemma4:31b-cloud",
                  ollama_url: str = "http://localhost:11434"):
         
         self.neo4j_mgr = Neo4jGraphManager(uri=neo4j_uri, auth=neo4j_auth)
         self.chroma_mgr = ChromaManager(host=chroma_host, port=chroma_port)
         self.collection = self.chroma_mgr.get_or_create_collection("code_semantic_chunks")
+        self.chat_buffer = RedisChatBuffer(host=redis_host, port=redis_port)
         
         self.ollama_url = ollama_url
         self.model_name = get_best_ollama_model(preferred=model_name, base_url=ollama_url)
@@ -133,9 +137,17 @@ class CodeGraphRAGPipeline:
 
         return graph_info
 
-    def query_code_graph_rag(self, user_prompt: str) -> Dict[str, Any]:
-        """Full Code-GraphRAG Query Pipeline: Vector -> Graph Traversal -> LLM Generation."""
-        print(f"\n[CodeGraphRAG] Processing query: '{user_prompt}'")
+    def query_code_graph_rag(self, user_prompt: str, session_id: str = "default_session", max_history: int = 8) -> Dict[str, Any]:
+        """Full Code-GraphRAG Query Pipeline with Log-Based Redis Chat History Context (Past 8 Messages)."""
+        print(f"\n[CodeGraphRAG] Processing query (session: '{session_id}'): '{user_prompt}'")
+
+        # Step 0: Fetch past N (default 8) conversation messages from Redis log buffer
+        recent_history = self.chat_buffer.get_history(session_id=session_id, max_messages=max_history)
+        if recent_history:
+            history_lines = [f"{msg.get('role', 'user').capitalize()}: {msg.get('content', '')}" for msg in recent_history]
+            formatted_history = "\n".join(history_lines)
+        else:
+            formatted_history = "No prior conversation history for this session."
 
         # Step 1: Semantic Vector Search via BAAI/bge-small-en-v1.5
         vector_chunks = self.search_vector(user_prompt, n_results=5)
@@ -160,9 +172,12 @@ class CodeGraphRAGPipeline:
 
         joined_chunks_text = "\n---\n".join(cleaned_chunks_text)
 
-        # Step 3: Format Context Prompt for Ollama LLM
+        # Step 3: Format Context Prompt for Ollama LLM including Past 8 Messages Context
         formatted_prompt = f"""You are an expert Software Architect using a Code-GraphRAG System.
 User Query: "{user_prompt}"
+
+=== RECENT CONVERSATION HISTORY (Last {len(recent_history)} Messages Log Context) ===
+{formatted_history}
 
 === 1. RETRIEVED SEMANTIC CODE BLOCKS (Vector DB - BAAI/bge-small-en-v1.5) ===
 {joined_chunks_text}
@@ -197,10 +212,16 @@ Format response clearly using GitHub Markdown.
         else:
             answer = self._format_fallback_response(user_prompt, vector_chunks, graph_context)
 
+        # Step 5: Save interaction to Redis chat buffer
+        self.chat_buffer.add_message(session_id, "user", user_prompt, max_messages=max_history)
+        self.chat_buffer.add_message(session_id, "assistant", answer, max_messages=max_history)
+
         return {
             "user_prompt": user_prompt,
+            "session_id": session_id,
             "vector_chunks": vector_chunks,
             "graph_context": graph_context,
+            "chat_history": recent_history,
             "answer": answer
         }
 
