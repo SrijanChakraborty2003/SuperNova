@@ -477,6 +477,30 @@ body {
     margin-bottom: 0.85rem;
 }
 
+/* Chat Message Code Block Container */
+.code-block-container {
+    margin: 0.65rem 0;
+    background: #050811;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+}
+
+.code-block-container pre {
+    margin: 0;
+    font-family: var(--font-code);
+    font-size: 0.84rem;
+    color: #38bdf8;
+    line-height: 1.45;
+    white-space: pre;
+}
+
+.code-block-container code {
+    background: transparent !important;
+    padding: 0 !important;
+}
+
 /* Layout with Sidebar */
 .app-layout {
     display: flex;

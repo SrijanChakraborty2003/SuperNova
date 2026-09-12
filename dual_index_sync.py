@@ -3,6 +3,7 @@ import re
 import json
 from typing import List, Dict, Any, Optional
 from okf_extractor import RepoManager, ASTParser, OKFExtractor, Neo4jGraphManager, ChromaManager
+from keyword_index import BM25KeywordIndex
 
 
 def create_sliding_window_chunks(
@@ -142,7 +143,7 @@ class SemanticChunker:
 
 
 class DualIndexSync:
-    """Coordinates simultaneous graph (Neo4j / OKF) and vector (ChromaDB + BGE-small-v1.5) indexing & purging."""
+    """Coordinates simultaneous graph (Neo4j / OKF), vector (ChromaDB + BGE), and keyword (BM25) indexing & purging."""
 
     def __init__(self, 
                  neo4j_uri: str = "bolt://localhost:7687", 
@@ -158,6 +159,7 @@ class DualIndexSync:
         self.chroma_mgr = ChromaManager(host=chroma_host, port=chroma_port)
         self.collection = self.chroma_mgr.get_or_create_collection("code_semantic_chunks")
         
+        self.keyword_index = BM25KeywordIndex()
         self.ast_parser = ASTParser()
         self.chunker = SemanticChunker(self.ast_parser)
         self.okf_extractor = OKFExtractor(model_name=model_name, ollama_url=ollama_url)
@@ -170,7 +172,7 @@ class DualIndexSync:
         return self.collection
 
     def purge_file(self, rel_path: str, chat_id: Optional[str] = None):
-        """Surgically purges stale graph nodes and vector embeddings for a modified file."""
+        """Surgically purges stale graph nodes, vector embeddings, and BM25 keyword entries for a modified file."""
         print(f"[DualIndexSync] Purging stale data for: {rel_path} (chat_id: {chat_id})")
         
         # 1. Purge from Neo4j Graph DB if connected
@@ -192,8 +194,14 @@ class DualIndexSync:
         except Exception as e:
             print(f"[DualIndexSync] Chroma purge notice for {rel_path}: {e}")
 
+        # 3. Purge from BM25 Keyword Index
+        try:
+            self.keyword_index.purge_file(rel_path, session_id=chat_id or "default_session")
+        except Exception as e:
+            print(f"[DualIndexSync] BM25 purge notice for {rel_path}: {e}")
+
     def sync_file(self, file_path: str, repo_root: str, repo_name: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
-        """Surgically updates a single modified source file across Neo4j/OKF and ChromaDB."""
+        """Surgically updates a single modified source file across Neo4j/OKF, ChromaDB, and BM25 Keyword Index."""
         rel_path = os.path.relpath(file_path, repo_root).replace("\\", "/")
         target_collection = self.get_collection_for_chat(chat_id)
 
@@ -203,13 +211,16 @@ class DualIndexSync:
         # Step 2: Parse AST & extract metadata
         file_meta = self.ast_parser.parse_file(file_path, repo_root)
 
-        # Step 3: Chunk & upsert into isolated ChromaDB collection for this chat session
+        # Step 3: Chunk & upsert into ChromaDB and BM25 Keyword Index
         chunks = self.chunker.chunk_file(file_path, repo_root, repo_name=repo_name, chat_id=chat_id or "")
         if chunks:
             ids = [c["id"] for c in chunks]
             documents = [c["text"] for c in chunks]
             metadatas = [c["metadata"] for c in chunks]
             target_collection.add(ids=ids, documents=documents, metadatas=metadatas)
+
+            # BM25 Keyword Indexing
+            self.keyword_index.add_chunks(chunks, session_id=chat_id or "default_session")
 
         # Step 4: Extract OKF Triples & upsert into Graph
         triples = self.okf_extractor.extract_okf_triples(file_meta)
@@ -219,7 +230,7 @@ class DualIndexSync:
             llm_triples=triples
         )
 
-        print(f"[DualIndexSync] Successfully synced '{rel_path}': {len(chunks)} vector chunks, {len(triples)} OKF triples.")
+        print(f"[DualIndexSync] Successfully synced '{rel_path}': {len(chunks)} vector/keyword chunks, {len(triples)} OKF triples.")
         return {"file": rel_path, "chunks": len(chunks), "triples": len(triples)}
 
     def sync_repository(self, repo_target: str, chat_id: Optional[str] = None) -> Dict[str, Any]:
@@ -239,13 +250,17 @@ class DualIndexSync:
             total_triples += res["triples"]
 
         stats = self.neo4j_mgr.get_summary_stats()
+        kw_count = self.keyword_index.count(session_id=chat_id or "default_session")
+
         print(f"[DualIndexSync] Full Repository Sync Complete for '{repo_mgr.repo_name}'!")
         return {
             "repository": repo_mgr.repo_name,
             "processed_files": len(source_files),
             "total_vector_chunks": total_chunks,
+            "total_keyword_chunks": kw_count,
             "graph_stats": stats
         }
 
     def close(self):
         self.neo4j_mgr.close()
+

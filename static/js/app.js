@@ -15,6 +15,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const clearChatBtn = document.getElementById("clearChatBtn");
     const newChatBtn = document.getElementById("newChatBtn");
     const logoutBtn = document.getElementById("logoutBtn");
+    const chatsList = document.getElementById("chatsList");
+    const chatHistory = document.getElementById("chatHistory");
 
     // OTP Auth Listeners
     document.getElementById("sendOtpBtn").addEventListener("click", handleSendOtp);
@@ -50,7 +52,10 @@ document.addEventListener("DOMContentLoaded", () => {
     clearChatBtn.addEventListener("click", async () => {
         if (!currentChatId) return;
         try {
-            await fetch(`/api/chat-history?session_id=${encodeURIComponent(currentChatId)}`, { method: "DELETE" });
+            await fetch(`/api/chat-history?session_id=${encodeURIComponent(currentChatId)}`, {
+                method: "DELETE",
+                headers: { "X-User-Email": currentUserEmail }
+            });
             document.getElementById("chatHistory").innerHTML = `
                 <div class="message message-ai">
                     <div class="avatar"><i class="fa-solid fa-robot"></i></div>
@@ -62,6 +67,42 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast("Session history cleared", "info");
         } catch (e) {
             console.error("Error clearing chat history:", e);
+        }
+    });
+
+    // Event Delegation for Sidebar Chat Sessions (Avoid fragile inline onclicks)
+    chatsList.addEventListener("click", (e) => {
+        const deleteBtn = e.target.closest(".chat-delete-btn");
+        if (deleteBtn) {
+            e.stopPropagation();
+            const chatId = deleteBtn.dataset.chatId;
+            if (chatId) deleteChat(chatId);
+            return;
+        }
+
+        const sessionItem = e.target.closest(".chat-session-item");
+        if (sessionItem) {
+            const chatId = sessionItem.dataset.chatId;
+            if (chatId && chatId !== currentChatId) {
+                switchChat(chatId);
+            }
+        }
+    });
+
+    // Event Delegation for Code Proposal Cards inside Chat History
+    chatHistory.addEventListener("click", (e) => {
+        const applyBtn = e.target.closest(".apply-code-btn");
+        if (applyBtn) {
+            const card = applyBtn.closest(".code-proposal-card");
+            const filePath = applyBtn.dataset.filePath;
+            const lineStart = parseInt(applyBtn.dataset.lineStart, 10);
+            const lineEnd = parseInt(applyBtn.dataset.lineEnd, 10);
+            const codeBox = card ? card.querySelector(".proposal-code-box") : null;
+            const updatedCode = codeBox ? codeBox.textContent : "";
+
+            if (filePath && updatedCode) {
+                applyCodeUpdate(filePath, lineStart, lineEnd, updatedCode, applyBtn);
+            }
         }
     });
 });
@@ -88,7 +129,6 @@ async function handleSendOtp() {
     const emailInput = document.getElementById("userEmailInput");
     const email = emailInput.value.trim();
     const btn = document.getElementById("sendOtpBtn");
-    const notice = document.getElementById("modalNotice");
 
     if (!email || !email.includes("@")) {
         showModalNotice("Please enter a valid Gmail or Email address.");
@@ -219,11 +259,7 @@ function renderChatList(chats) {
     chats.forEach((chat) => {
         const item = document.createElement("div");
         item.className = `chat-session-item ${chat.chat_id === currentChatId ? 'active' : ''}`;
-        item.onclick = (e) => {
-            if (!e.target.closest('.chat-delete-btn')) {
-                switchChat(chat.chat_id);
-            }
-        };
+        item.dataset.chatId = chat.chat_id;
 
         const titleText = chat.title || "Repository Chat";
         const repoText = chat.repo_url ? chat.repo_url : "No repo assigned";
@@ -233,7 +269,7 @@ function renderChatList(chats) {
                 <div class="chat-session-title"><i class="fa-solid fa-comments"></i> ${escapeHtml(titleText)}</div>
                 <div class="chat-session-repo">${escapeHtml(repoText)}</div>
             </div>
-            <button class="chat-delete-btn" onclick="deleteChat('${chat.chat_id}')" title="Delete chat">
+            <button class="chat-delete-btn" data-chat-id="${escapeHtml(chat.chat_id)}" title="Delete chat">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
         `;
@@ -288,7 +324,7 @@ async function switchChat(chatId) {
     }
 }
 
-// Delete Chat Session
+// Delete Chat Session with Automatic Selection of Remaining Sessions
 async function deleteChat(chatId) {
     if (!confirm("Are you sure you want to delete this chat session?")) return;
     try {
@@ -297,10 +333,23 @@ async function deleteChat(chatId) {
             headers: { "X-User-Email": currentUserEmail }
         });
         showToast("Chat session deleted", "info");
+
+        // Fetch remaining chats and switch gracefully if active session was deleted
+        const res = await fetch("/api/chats", {
+            headers: { "X-User-Email": currentUserEmail }
+        });
+        const data = await res.json();
+        const remainingChats = data.chats || [];
+        renderChatList(remainingChats);
+
         if (currentChatId === chatId) {
-            currentChatId = "";
+            if (remainingChats.length > 0) {
+                switchChat(remainingChats[0].chat_id);
+            } else {
+                currentChatId = "";
+                createNewChat();
+            }
         }
-        fetchUserChats();
     } catch (e) {
         console.error("Error deleting chat:", e);
     }
@@ -335,6 +384,7 @@ async function fetchSystemStatus() {
         const data = await res.json();
         if (data.status === "online") {
             document.getElementById("statVectorChunks").innerText = data.vector_chunks_count || 0;
+            document.getElementById("statKeywordChunks").innerText = data.keyword_chunks_count || 0;
             const triples = data.graph_stats?.in_memory_triples || 
                             (data.graph_stats?.relationships ? Object.values(data.graph_stats.relationships).reduce((a,b)=>a+b,0) : 0);
             document.getElementById("statTriples").innerText = triples;
@@ -381,6 +431,7 @@ function startRepoSync(repoUrl) {
                 summaryPills.style.display = "flex";
                 document.getElementById("sumFiles").innerText = data.summary.processed_files || 0;
                 document.getElementById("sumChunks").innerText = data.summary.total_vector_chunks || 0;
+                document.getElementById("sumKeywordChunks").innerText = data.summary.total_keyword_chunks || 0;
                 const triples = data.summary.graph_stats?.in_memory_triples || 0;
                 document.getElementById("sumTriples").innerText = triples;
             }
@@ -452,7 +503,7 @@ async function sendChatMessage() {
     }
 }
 
-// Append Generic Message Bubble
+// Append Generic User/System Message Bubble
 function appendMessage(sender, text) {
     const history = document.getElementById("chatHistory");
     const msgDiv = document.createElement("div");
@@ -461,7 +512,7 @@ function appendMessage(sender, text) {
     const icon = sender === "user" ? "fa-user" : "fa-robot";
     msgDiv.innerHTML = `
         <div class="avatar"><i class="fa-solid ${icon}"></i></div>
-        <div class="message-content"><p>${escapeHtml(text)}</p></div>
+        <div class="message-content">${formatMarkdown(text)}</div>
     `;
     history.appendChild(msgDiv);
     history.scrollTop = history.scrollHeight;
@@ -476,7 +527,7 @@ function appendLoadingMessage(id) {
     msgDiv.innerHTML = `
         <div class="avatar"><i class="fa-solid fa-robot"></i></div>
         <div class="message-content">
-            <p><i class="fa-solid fa-circle-notch fa-spin"></i> Searching vector chunks (BGE) & traversing OKF call graph...</p>
+            <p><i class="fa-solid fa-circle-notch fa-spin"></i> Searching Top 2 hybrid chunks (Vector + BM25) & traversing dual OKF blast radius...</p>
         </div>
     `;
     history.appendChild(msgDiv);
@@ -500,7 +551,7 @@ function appendAIMessage(answerText, proposal) {
                     <span class="proposal-meta">${escapeHtml(proposal.file_path)} (Lines ${proposal.line_start}-${proposal.line_end})</span>
                 </div>
                 <div class="proposal-code-box">${escapeHtml(proposal.updated_code)}</div>
-                <button class="btn btn-accent btn-sm" onclick="applyCodeUpdate('${escapeHtml(proposal.file_path)}', ${proposal.line_start}, ${proposal.line_end}, this)">
+                <button class="btn btn-accent btn-sm apply-code-btn" data-file-path="${escapeHtml(proposal.file_path)}" data-line-start="${proposal.line_start}" data-line-end="${proposal.line_end}">
                     <i class="fa-solid fa-check"></i> Apply Code Update & Surgical Re-index
                 </button>
             </div>
@@ -519,11 +570,7 @@ function appendAIMessage(answerText, proposal) {
 }
 
 // Apply Code Update Handler
-async function applyCodeUpdate(filePath, lineStart, lineEnd, btnElement) {
-    const card = btnElement.closest(".code-proposal-card");
-    const codeBox = card.querySelector(".proposal-code-box");
-    const updatedCode = codeBox.innerText;
-
+async function applyCodeUpdate(filePath, lineStart, lineEnd, updatedCode, btnElement) {
     btnElement.disabled = true;
     btnElement.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Applying & Re-indexing...`;
 
@@ -557,17 +604,40 @@ async function applyCodeUpdate(filePath, lineStart, lineEnd, btnElement) {
     }
 }
 
-// Markdown Formatter Utility
+// Markdown Formatter Utility (Extracts code blocks FIRST to prevent <br> tag corruption inside pre/code elements)
 function formatMarkdown(text) {
     if (!text) return "";
-    let html = escapeHtml(text);
-    html = html.replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = html.replace(/\n/g, '<br>');
-    return `<p>${html}</p>`;
+
+    const codeBlocks = [];
+    // Extract fenced code blocks first
+    let processed = text.replace(/```([a-zA-Z0-9_-]*)\s*\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push({ lang: lang || 'code', code: code });
+        return placeholder;
+    });
+
+    // Escape HTML for surrounding prose
+    processed = escapeHtml(processed);
+
+    // Format inline markdown
+    processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
+    processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    processed = processed.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    processed = processed.replace(/\n\n/g, '</p><p>');
+    processed = processed.replace(/\n/g, '<br>');
+    processed = `<p>${processed}</p>`;
+
+    // Restore code blocks with exact un-corrupted linebreaks & syntax escaping
+    codeBlocks.forEach((block, idx) => {
+        const placeholder = `__CODE_BLOCK_${idx}__`;
+        const escapedCode = escapeHtml(block.code.trim());
+        const codeHtml = `</p><div class="code-block-container"><pre><code class="language-${block.lang}">${escapedCode}</code></pre></div><p>`;
+        processed = processed.replace(placeholder, codeHtml);
+    });
+
+    // Clean up empty paragraph tags
+    processed = processed.replace(/<p>\s*<\/p>/g, '');
+    return processed;
 }
 
 function escapeHtml(str) {

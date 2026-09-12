@@ -109,10 +109,12 @@ def get_status():
     try:
         pipeline = get_pipeline_engine()
         count = pipeline.collection.count()
+        kw_count = pipeline.keyword_index.count()
         stats = pipeline.neo4j_mgr.get_summary_stats()
         return jsonify({
             "status": "online",
             "vector_chunks_count": count,
+            "keyword_chunks_count": kw_count,
             "graph_stats": stats
         })
     except Exception as e:
@@ -217,6 +219,7 @@ def handle_chats():
             chats_store[email] = [c for c in chats_store[email] if c["chat_id"] != chat_id]
             pipeline = get_pipeline_engine()
             pipeline.chat_buffer.clear_history(chat_id)
+            pipeline.keyword_index.clear(chat_id)
         return jsonify({"status": "deleted", "chat_id": chat_id})
 
 
@@ -229,6 +232,28 @@ def get_chat_detail(chat_id):
         if c["chat_id"] == chat_id:
             return jsonify({"status": "success", "chat": c})
     return jsonify({"error": "Chat session not found"}), 404
+
+
+@app.route("/api/chat-history", methods=["GET", "DELETE"])
+def handle_chat_history():
+    """Retrieves or clears the chat history log for a specific chat session."""
+    session_id = request.args.get("session_id", "").strip() or request.args.get("chat_id", "").strip() or "default_session"
+    email = request.headers.get("X-User-Email", "user@supernova.local").strip().lower()
+    
+    pipeline = get_pipeline_engine()
+    
+    if request.method == "DELETE":
+        pipeline.chat_buffer.clear_history(session_id)
+        pipeline.keyword_index.clear(session_id)
+        if email in chats_store:
+            for c in chats_store[email]:
+                if c["chat_id"] == session_id:
+                    c["messages"] = []
+                    break
+        return jsonify({"status": "success", "message": f"Chat history cleared for session '{session_id}'."})
+
+    history = pipeline.chat_buffer.get_history(session_id=session_id)
+    return jsonify({"session_id": session_id, "history": history})
 
 
 @app.route("/api/stream-sync", methods=["GET"])
@@ -254,7 +279,7 @@ def stream_sync():
             yield f"data: {json.dumps({'status': 'discovered', 'progress': 30, 'message': f'Discovered {total_files} source files for AST parsing.'})}\n\n"
             time.sleep(0.3)
 
-            # Step 2: Indexing Files into isolated ChromaDB collection for this chat_id
+            # Step 2: Indexing Files into isolated ChromaDB collection & BM25 index for this chat_id
             sync = get_sync_engine()
             total_chunks = 0
             total_triples = 0
@@ -262,7 +287,7 @@ def stream_sync():
             for idx, sf in enumerate(source_files, start=1):
                 rel_file = os.path.relpath(sf, repo_root).replace("\\", "/")
                 prog = 30 + int((idx / max(1, total_files)) * 60)
-                yield f"data: {json.dumps({'status': 'indexing', 'progress': prog, 'message': f'Parsing AST & embedding [{idx}/{total_files}]: {rel_file}'})}\n\n"
+                yield f"data: {json.dumps({'status': 'indexing', 'progress': prog, 'message': f'Parsing AST, embedding & BM25 indexing [{idx}/{total_files}]: {rel_file}'})}\n\n"
 
                 res = sync.sync_file(file_path=sf, repo_root=repo_root, repo_name=repo_mgr.repo_name, chat_id=chat_id)
                 total_chunks += res.get("chunks", 0)
@@ -278,13 +303,15 @@ def stream_sync():
                             break
 
             stats = sync.neo4j_mgr.get_summary_stats()
+            kw_count = sync.keyword_index.count(session_id=chat_id or "default_session")
             msg_text = f"Successfully ingested repository '{repo_mgr.repo_name}'!"
-            yield f"data: {json.dumps({'status': 'complete', 'progress': 100, 'message': msg_text, 'summary': {'processed_files': total_files, 'total_vector_chunks': total_chunks, 'graph_stats': stats}})}\n\n"
+            yield f"data: {json.dumps({'status': 'complete', 'progress': 100, 'message': msg_text, 'summary': {'processed_files': total_files, 'total_vector_chunks': total_chunks, 'total_keyword_chunks': kw_count, 'graph_stats': stats}})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'progress': 0, 'message': f'Error during sync: {str(e)}'})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
 
 
 @app.route("/api/query", methods=["POST"])
